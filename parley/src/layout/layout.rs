@@ -6,6 +6,7 @@ use crate::layout::alignment::align;
 use crate::layout::alignment::unjustify;
 use crate::layout::data::LayoutData;
 use crate::style::Brush;
+use crate::FontData;
 use core::cmp::Ordering;
 
 use crate::layout::{
@@ -181,6 +182,10 @@ impl<B: Brush> Layout<B> {
             Err(index) => index.saturating_sub(1),
         };
         Some((line_index, self.get(line_index)?))
+    }
+
+    pub fn get_font(&self, index: usize) -> Option<&FontData> {
+        self.data.fonts.get(index)
     }
 }
 
