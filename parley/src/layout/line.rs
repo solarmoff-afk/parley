@@ -52,15 +52,18 @@ impl<'a, B: Brush> Line<'a, B> {
             return None;
         }
         let item = self.layout.data.line_items.get(index)?;
-
         Some(match item.kind {
-            LayoutItemKind::TextRun => LineItem::Run(Run {
-                layout: self.layout,
-                line_index: self.index,
-                index: original_index as u32,
-                data: self.layout.data.runs.get(item.index)?,
-                line_data: Some(item),
-            }),
+            LayoutItemKind::TextRun => {
+                let run_data = self.layout.data.runs.get(item.index)?;
+                
+                LineItem::Run(Run::new(
+                    self.layout,
+                    self.index,
+                    original_index as u32,
+                    run_data,
+                    Some(item),
+                ))
+            }
             LayoutItemKind::InlineBox => {
                 LineItem::InlineBox(self.layout.data.inline_boxes.get(item.index)?)
             }
@@ -80,13 +83,17 @@ impl<'a, B: Brush> Line<'a, B> {
             .iter()
             .enumerate()
             .map(move |(item_index, line_data)| match line_data.kind {
-                LayoutItemKind::TextRun => LineItem::Run(Run {
-                    layout: copy.layout,
-                    line_index: copy.index,
-                    index: item_index as u32,
-                    data: &copy.layout.data.runs[line_data.index],
-                    line_data: Some(line_data),
-                }),
+                LayoutItemKind::TextRun => {
+                    let run_data = &copy.layout.data.runs[line_data.index];
+                    
+                    LineItem::Run(Run::new(
+                        copy.layout,
+                        copy.index,
+                        item_index as u32,
+                        run_data,
+                        Some(line_data),
+                    ))
+                }
                 LayoutItemKind::InlineBox => {
                     LineItem::InlineBox(&copy.layout.data.inline_boxes[line_data.index])
                 }
@@ -123,15 +130,9 @@ pub struct LineMetrics {
     pub advance: f32,
     /// Advance of trailing whitespace.
     pub trailing_whitespace: f32,
-    /// Minimum coordinate in the direction orthogonal to line
-    /// direction.
-    ///
-    /// For horizontal text, this would be the top of the line.
+    /// Minimum coordinate in the direction orthogonal to line direction.
     pub min_coord: f32,
-    /// Maximum coordinate in the direction orthogonal to line
-    /// direction.
-    ///
-    /// For horizontal text, this would be the bottom of the line.
+    /// Maximum coordinate in the direction orthogonal to line direction.
     pub max_coord: f32,
 }
 
@@ -185,6 +186,8 @@ pub struct GlyphRun<'a, B: Brush> {
     offset: f32,
     baseline: f32,
     advance: f32,
+    /// The index of the font that actually provides these glyphs (after fallback)
+    pub(crate) font_index: usize,
 }
 
 impl<'a, B: Brush> GlyphRun<'a, B> {
@@ -233,6 +236,12 @@ impl<'a, B: Brush> GlyphRun<'a, B> {
             g
         })
     }
+
+    /// Returns the index of the font that actually provides these glyphs (after fallback).
+    /// This index can be used with `layout.data.fonts.get()` to get the font for rasterization.
+    pub fn font_index(&self) -> usize {
+        self.font_index
+    }
 }
 
 #[derive(Clone)]
@@ -252,7 +261,6 @@ impl<'a, B: Brush> Iterator for GlyphRunIter<'a, B> {
             match item {
                 LineItem::InlineBox(inline_box) => {
                     let x = self.offset + self.line.data.metrics.offset;
-
                     self.item_index += 1;
                     self.glyph_start = 0;
                     self.offset += inline_box.width;
@@ -269,7 +277,6 @@ impl<'a, B: Brush> Iterator for GlyphRunIter<'a, B> {
                         .visual_clusters()
                         .flat_map(|c| c.glyphs())
                         .skip(self.glyph_start);
-
                     if let Some(first) = iter.next() {
                         let mut advance = first.advance;
                         let style_index = first.style_index();
@@ -283,6 +290,10 @@ impl<'a, B: Brush> Iterator for GlyphRunIter<'a, B> {
                         self.glyph_start += glyph_count;
                         let offset = self.offset;
                         self.offset += advance;
+                        
+                        // Get the actual font index for this glyph run
+                        let font_index = run.data.font_index;
+                        
                         return Some(PositionedLayoutItem::GlyphRun(GlyphRun {
                             run,
                             style,
@@ -291,6 +302,7 @@ impl<'a, B: Brush> Iterator for GlyphRunIter<'a, B> {
                             offset: offset + self.line.data.metrics.offset,
                             baseline: self.line.data.metrics.baseline,
                             advance,
+                            font_index,
                         }));
                     }
                     self.item_index += 1;
