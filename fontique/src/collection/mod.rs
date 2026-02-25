@@ -11,6 +11,8 @@ use crate::font::FontInfoOverride;
 
 use super::SourceCache;
 
+use crate::Attributes;
+
 use super::{
     Blob, FontStyle, FontWeight, FontWidth, GenericFamily, Language, Script,
     backend::SystemFonts,
@@ -23,6 +25,7 @@ use super::{
 };
 use crate::AtomicCounter;
 use alloc::{string::String, sync::Arc, vec::Vec};
+use alloc::string::ToString;
 use hashbrown::HashMap;
 use read_fonts::types::NameId;
 #[cfg(feature = "std")]
@@ -66,6 +69,7 @@ impl Default for CollectionOptions {
 pub struct Collection {
     inner: Inner,
     query_state: query::QueryState,
+    all_fonts: Vec<FontInfo>,
 }
 
 impl Collection {
@@ -82,7 +86,13 @@ impl Collection {
         Self {
             inner: Inner::new(options),
             query_state: query::QueryState::default(),
+            all_fonts: Vec::new(),
         }
+    }
+
+    /// Returns the font at the given index.
+    pub fn get_font(&self, index: usize) -> Option<&FontInfo> {
+        self.all_fonts.get(index)
     }
 
     /// Load system fonts. If system fonts are already loaded then this does nothing.
@@ -96,6 +106,50 @@ impl Collection {
     #[cfg(feature = "std")]
     pub fn load_fonts_from_paths(&mut self, paths: impl IntoIterator<Item = impl AsRef<Path>>) {
         self.inner.load_fonts_from_paths(paths);
+        
+        let family_names: Vec<String> = self.family_names().map(|s| s.to_string()).collect();
+        
+        let mut family_ids = Vec::new();
+        for name in &family_names {
+            if let Some(id) = self.family_id(name) {
+                family_ids.push(id);
+            }
+        }
+        
+        if family_ids.is_empty() {
+            return;
+        }
+        
+        let mut new_fonts = Vec::new();
+        
+        for family_id in family_ids {
+            let (family_id_for_later, indices) = {
+                let mut source_cache = SourceCache::default();
+                let mut query = self.query(&mut source_cache);
+                query.set_attributes(Attributes::default());
+                query.set_families([QueryFamily::Id(family_id)]);
+                
+                let mut indices = Vec::new();
+                query.matches_with(|font| {
+                    indices.push(font.family.1);
+                    QueryStatus::Continue
+                });
+                
+                (family_id, indices)
+            };
+            
+            for idx in indices {
+                if let Some(font_info) = self.get_font_info(family_id_for_later, idx) {
+                    new_fonts.push(font_info.clone());
+                }
+            }
+        }
+        
+        for font in new_fonts {
+            if !self.all_fonts.contains(&font) {
+                self.all_fonts.push(font);
+            }
+        }
     }
 
     /// Returns an iterator over all available family names in the collection.
@@ -198,7 +252,15 @@ impl Collection {
         data: Blob<u8>,
         info_override: Option<FontInfoOverride<'_>>,
     ) -> Vec<(FamilyId, Vec<FontInfo>)> {
-        self.inner.register_fonts(data, info_override)
+        let result = self.inner.register_fonts(data, info_override);
+        
+        for (_, fonts) in &result {
+            for font in fonts {
+                self.all_fonts.push(font.clone());
+            }
+        }
+        
+        result
     }
 
     /// Unregisters the font with the given attributes from the given family.
@@ -219,6 +281,25 @@ impl Collection {
     /// and fallbacks. This will not remove any system fonts.
     pub fn clear(&mut self) {
         self.inner.clear();
+    }
+
+    fn get_font_info(&self, family_id: FamilyId, index: usize) -> Option<FontInfo> {
+        if let Some(Some(family)) = self.inner.data.families.get(&family_id) {
+            family.fonts().get(index).cloned()
+        } else {
+            #[cfg(feature = "system")]
+            {
+                if let Some(system) = &self.inner.system {
+                    if let Ok(mut family) = system.fonts.lock() {
+                        if let Some(family_info) = family.family(family_id) {
+                            return family_info.fonts().get(index).cloned();
+                        }
+                    }
+                }
+            }
+            
+            None
+        }
     }
 }
 

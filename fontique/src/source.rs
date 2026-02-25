@@ -35,7 +35,7 @@ impl SourceId {
 }
 
 /// Handle that associates font data with a unique identifier.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SourceInfo {
     pub id: SourceId,
     pub kind: SourceKind,
@@ -61,7 +61,7 @@ impl SourceInfo {
 /// Font data that is either a path to the font file or shared data in memory.
 ///
 /// See [`SourceInfo`].
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum SourceKind {
     /// Shared data containing the content of the font file.
     Memory(Blob<u8>),

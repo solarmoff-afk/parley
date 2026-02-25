@@ -15,7 +15,7 @@ use smallvec::SmallVec;
 type AxisVec = SmallVec<[AxisInfo; 1]>;
 
 /// Representation of a single font in a family.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FontInfo {
     source: SourceInfo,
     index: u32,
@@ -314,7 +314,7 @@ const OPTICAL_SIZE_AXIS: u8 = 0x10;
 /// For a broader explanation of this, see
 /// [Axis in Variable Fonts](https://fonts.google.com/knowledge/glossary/axis_in_variable_fonts)
 /// from Google Fonts.
-#[derive(Copy, Clone, Default, Debug)]
+#[derive(Copy, Clone, Default, Debug, PartialEq)]
 pub struct AxisInfo {
     /// The tag that identifies the axis.
     pub tag: Tag,
